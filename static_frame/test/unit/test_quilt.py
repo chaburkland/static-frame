@@ -4,7 +4,7 @@ from hashlib import sha256
 import frame_fixtures as ff
 import numpy as np
 
-from static_frame.core.axis_map import bus_to_hierarchy
+from static_frame.core.axis_map import build_quilt_indices
 from static_frame.core.batch import Batch
 from static_frame.core.bus import Bus
 from static_frame.core.display_config import DisplayConfig
@@ -177,7 +177,7 @@ class TestUnit(TestCase):
 
         q1 = Quilt.from_frame(f1, chunksize=10, axis=1, retain_labels=False)
 
-        primary_index, opp = bus_to_hierarchy(q1._bus, q1._axis, deepcopy_from_bus=False, init_exception_cls=ErrorInitQuilt)
+        primary_index, opp = build_quilt_indices(q1._bus, q1._axis, deepcopy_from_bus=False, init_exception_cls=ErrorInitQuilt)
 
         with self.assertRaises(ErrorInitQuilt):
             Quilt(q1._bus, axis=1, retain_labels=False, primary_index=primary_index)
@@ -301,7 +301,7 @@ class TestUnit(TestCase):
         self.assertEqual(q1.rename('bar').name, 'bar')
         self.assertTrue(repr(q1.display(DisplayConfig(type_color=False))).startswith('<Quilt: foo'))
 
-        post, opp = bus_to_hierarchy(q1._bus, q1._axis, deepcopy_from_bus=True, init_exception_cls=ErrorInitQuilt)
+        post, opp = build_quilt_indices(q1._bus, q1._axis, deepcopy_from_bus=True, init_exception_cls=ErrorInitQuilt)
         self.assertEqual(len(post), 100)
         self.assertEqual(len(opp), 4)
 
@@ -326,7 +326,7 @@ class TestUnit(TestCase):
 
         q1 = Quilt.from_frame(f1, chunksize=10, axis=1, retain_labels=False)
 
-        post, opp = bus_to_hierarchy(q1._bus, q1._axis, deepcopy_from_bus=False, init_exception_cls=ErrorInitQuilt)
+        post, opp = build_quilt_indices(q1._bus, q1._axis, deepcopy_from_bus=False, init_exception_cls=ErrorInitQuilt)
         self.assertEqual(len(post), 100)
         self.assertEqual(len(opp), 4)
 

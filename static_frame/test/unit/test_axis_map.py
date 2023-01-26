@@ -3,7 +3,7 @@ import typing as tp
 import frame_fixtures as ff
 import numpy as np
 
-from static_frame.core.axis_map import bus_to_hierarchy
+from static_frame.core.axis_map import build_quilt_indices
 from static_frame.core.axis_map import buses_to_hierarchy
 from static_frame.core.bus import Bus
 from static_frame.core.exception import AxisInvalid
@@ -28,7 +28,7 @@ class TestUnit(TestCase):
         b1 = Bus.from_frames((f1, f2, f3))
 
         with self.assertRaises(AxisInvalid):
-            bus_to_hierarchy(b1, deepcopy_from_bus=False, axis=3, init_exception_cls=ErrorInitQuilt)
+            build_quilt_indices(b1, deepcopy_from_bus=False, axis=3, init_exception_cls=ErrorInitQuilt)
 
     def test_index_map_a(self) -> None:
 
@@ -71,7 +71,7 @@ class TestUnit(TestCase):
 
 
         def test_assertions(axis: int, flag: bool) -> None:
-            primary_index, secondary_index = bus_to_hierarchy(
+            primary_index, secondary_index = build_quilt_indices(
                     b1,
                     axis=axis,
                     deepcopy_from_bus=flag,
@@ -118,15 +118,15 @@ class TestUnit(TestCase):
             self.compare_trees(primary_index.to_tree(), expected_tree)
             self.assertTrue(index1.equals(secondary_index))
 
-        test_assertions(*bus_to_hierarchy(b1, axis=0, deepcopy_from_bus=False, init_exception_cls=CustomError))
-        test_assertions(*bus_to_hierarchy(b1, axis=0, deepcopy_from_bus=True, init_exception_cls=CustomError))
+        test_assertions(*build_quilt_indices(b1, axis=0, deepcopy_from_bus=False, init_exception_cls=CustomError))
+        test_assertions(*build_quilt_indices(b1, axis=0, deepcopy_from_bus=True, init_exception_cls=CustomError))
 
         # Cannot do this since the frames do not share the same index
         with self.assertRaises(CustomError):
-            bus_to_hierarchy(b1, axis=1, deepcopy_from_bus=False, init_exception_cls=CustomError)
+            build_quilt_indices(b1, axis=1, deepcopy_from_bus=False, init_exception_cls=CustomError)
 
         with self.assertRaises(CustomError):
-            bus_to_hierarchy(b1, axis=1, deepcopy_from_bus=True, init_exception_cls=CustomError)
+            build_quilt_indices(b1, axis=1, deepcopy_from_bus=True, init_exception_cls=CustomError)
 
         # Align all the frames on index!
         f1 = Frame(values, index=index1, columns=index1, name='f1')
@@ -134,15 +134,15 @@ class TestUnit(TestCase):
         f3 = Frame(values, index=index1, columns=index3, name='f3')
         b1 = Bus.from_frames((f1, f2, f3))
 
-        test_assertions(*bus_to_hierarchy(b1, axis=1, deepcopy_from_bus=False, init_exception_cls=CustomError))
-        test_assertions(*bus_to_hierarchy(b1, axis=1, deepcopy_from_bus=True, init_exception_cls=CustomError))
+        test_assertions(*build_quilt_indices(b1, axis=1, deepcopy_from_bus=False, init_exception_cls=CustomError))
+        test_assertions(*build_quilt_indices(b1, axis=1, deepcopy_from_bus=True, init_exception_cls=CustomError))
 
         # Cannot do this since the frames do not share the same columns
         with self.assertRaises(CustomError):
-            bus_to_hierarchy(b1, axis=0, deepcopy_from_bus=False, init_exception_cls=CustomError)
+            build_quilt_indices(b1, axis=0, deepcopy_from_bus=False, init_exception_cls=CustomError)
 
         with self.assertRaises(CustomError):
-            bus_to_hierarchy(b1, axis=0, deepcopy_from_bus=True, init_exception_cls=CustomError)
+            build_quilt_indices(b1, axis=0, deepcopy_from_bus=True, init_exception_cls=CustomError)
 
     def test_buses_to_hierarchy_a(self) -> None:
         f1 = ff.parse('s(4,4)|v(int,float)').rename('f1')

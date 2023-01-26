@@ -8,6 +8,7 @@ from static_frame.core.index_auto import IndexAutoConstructorFactory
 from static_frame.core.index_base import IndexBase
 from static_frame.core.index_hierarchy import IndexHierarchy
 from static_frame.core.index_hierarchy import TreeNodeT
+from static_frame.core.series import Series
 from static_frame.core.util import AnyCallable
 from static_frame.core.util import array_deepcopy
 
@@ -32,15 +33,20 @@ def get_extractor(
     return lambda x: x
 
 
-def bus_to_hierarchy(
+def build_quilt_indices(
         bus: tp.Union[Bus, 'Yarn'],
         axis: int,
         deepcopy_from_bus: bool,
         init_exception_cls: tp.Type[Exception],
-        ) -> tp.Tuple[IndexHierarchy, IndexBase]:
+        include_index: bool = True, # TODO: Remove default
+        ) -> tp.Tuple[tp.Union[Series, IndexHierarchy], IndexBase]:
     '''
     Given a :obj:`Bus` and an axis, derive a :obj:`IndexHierarchy`; also return and validate the :obj:`Index` of the secondary axis.
     '''
+    if not bus.size:
+        # TODO: Coverage
+        raise init_exception_cls('Container is empty.')
+
     # NOTE: need to extract just axis labels, not the full Frame; need new Store/Bus loaders just for label data
     extractor = get_extractor(deepcopy_from_bus, is_array=False, memo_active=False)
 
@@ -50,19 +56,34 @@ def bus_to_hierarchy(
             return index.to_tree()
         return index
 
-    tree: TreeNodeT = {}
+    frame_labels: tp.List[tp.Hashable] = []
+    primary_tree: TreeNodeT = {}
     secondary: tp.Optional[IndexBase] = None
 
     for label, f in bus.items():
+        # Handle primary index
+        if include_index:
+            if axis == 0:
+                primary_tree[label] = tree_extractor(f.index)
+            else:
+                primary_tree[label] = tree_extractor(f.columns)
+        else:
+            # Quilts need to evenutally map iloc calls to frame name.
+            # Since `include_index=False`, this means we aren't building an index hierarchy anymore,
+            # which was the previous way this mapping was done.
+            #
+            # Instead we will construct a series of frame labels, which provides the same utility
+            # that the outermost level of the index_hierarchy would have provided, if `include_index=True`.
+            frame_labels.extend([label] * f.shape[axis])
+
+        # Handle secondary index
         if axis == 0:
-            tree[label] = tree_extractor(f.index)
             if secondary is None:
                 secondary = extractor(f.columns)
             else:
                 if not secondary.equals(f.columns):
                     raise init_exception_cls('secondary axis must have equivalent indices')
         elif axis == 1:
-            tree[label] = tree_extractor(f.columns)
             if secondary is None:
                 secondary = extractor(f.index)
             else:
@@ -71,11 +92,16 @@ def bus_to_hierarchy(
         else:
             raise AxisInvalid(f'invalid axis {axis}')
 
-    # NOTE: we could try to collect index constructors by using the index of the Bus and observing the inidices of the contained Frames, but it is not clear that will be better then using IndexAutoConstructorFactory
-    primary = IndexHierarchy.from_tree(
-            tree,  # type: ignore
-            index_constructors=IndexAutoConstructorFactory,
-            )
+    if not include_index:
+        assert frame_labels
+        primary = Series(frame_labels)
+    else:
+        assert primary_tree
+        # NOTE: we could try to collect index constructors by using the index of the Bus and observing the inidices of the contained Frames, but it is not clear that will be better then using IndexAutoConstructorFactory
+        primary = IndexHierarchy.from_tree(
+                primary_tree,  # type: ignore
+                index_constructors=IndexAutoConstructorFactory,
+                )
 
     return primary, secondary
 

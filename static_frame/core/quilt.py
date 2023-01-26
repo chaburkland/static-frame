@@ -6,7 +6,7 @@ from itertools import zip_longest
 
 import numpy as np
 
-from static_frame.core.axis_map import bus_to_hierarchy
+from static_frame.core.axis_map import build_quilt_indices
 from static_frame.core.axis_map import get_extractor
 from static_frame.core.bus import Bus
 from static_frame.core.container import ContainerBase
@@ -60,7 +60,13 @@ from static_frame.core.yarn import Yarn
 
 class Quilt(ContainerBase, StoreClientMixin):
     '''
-    A :obj:`Frame`-like view of the contents of a :obj:`Bus` or :obj:`Yarn`. With the Quilt, :obj:`Frame` contained in a :obj:`Bus` or :obj:`Yarn` can be conceived as stacking vertically (primary axis 0) or horizontally (primary axis 1). If the labels of the primary axis are unique accross all contained :obj:`Frame`, ``retain_labels`` can be set to ``False`` and underlying labels are simply concatenated; otherwise, ``retain_labels`` must be set to ``True`` and an additional depth-level is added to the primary axis labels. A :obj:`Quilt` can only be created if labels of the secondary axis of all contained :obj:`Frame` are aligned.
+    A :obj:`Frame`-like view of the contents of a :obj:`Bus` or :obj:`Yarn`.
+
+    With the Quilt, :obj:`Frame` contained in a :obj:`Bus` or :obj:`Yarn` can be conceived as stacking vertically (primary axis 0) or horizontally (primary axis 1).
+
+    If the labels of the primary axis are unique accross all contained :obj:`Frame`, ``retain_labels`` can be set to ``False`` and underlying labels are simply concatenated; otherwise, ``retain_labels`` must be set to ``True`` and an additional depth-level is added to the primary axis labels.
+
+    A :obj:`Quilt` can only be created if labels of the secondary axis of all contained :obj:`Frame` are aligned.
     '''
 
     __slots__ = (
@@ -80,9 +86,11 @@ class Quilt(ContainerBase, StoreClientMixin):
     _axis: int
     _primary_index: tp.Optional[IndexHierarchy]
     _secondary_index: tp.Optional[IndexBase]
-    _columns: IndexBase
     _index: IndexBase
+    _columns: IndexBase
     _assign_axis: bool
+    _retain_labels: bool
+    _include_index: bool
 
     _NDIM: int = 2
 
@@ -460,7 +468,7 @@ class Quilt(ContainerBase, StoreClientMixin):
             *,
             axis: int = 0,
             retain_labels: bool,
-            include_index: bool,
+            include_index: bool = True, # TODO: Remove default
             primary_index: tp.Optional[IndexHierarchy] = None,
             secondary_index: tp.Optional[IndexBase] = None,
             deepcopy_from_bus: bool = False,
@@ -493,30 +501,41 @@ class Quilt(ContainerBase, StoreClientMixin):
 
     def _update_axis_labels(self) -> None:
         if self._primary_index is None or self._secondary_index is None:
-            self._primary_index, self._secondary_index = bus_to_hierarchy(
+            primary, self._secondary_index = build_quilt_indices(
                     self._bus,
                     axis=self._axis,
+                    include_index=self._include_index,
                     deepcopy_from_bus=self._deepcopy_from_bus,
                     init_exception_cls=ErrorInitQuilt,
                     )
+
+            if self._include_index:
+                self._primary_index = primary
+            else:
+                assert primary.index._map is None # auto-incrememnted index
+                self._primary_index = primary.index
+
         if self._axis == 0:
-            if not self._retain_labels:
+            if not self._include_index or self._retain_labels:
+                self._index = self._primary_index
+            else:
                 try:
                     self._index = self._primary_index.level_drop(1)
                 except ErrorInitIndexNonUnique:
                     raise self._error_update_axis_labels(self._axis) from None
-            else: # get hierarchical
-                self._index = self._primary_index
+
             self._columns = self._secondary_index
         else:
-            if not self._retain_labels:
+            if not self._include_index or self._retain_labels:
+                self._columns = self._primary_index
+            else:
                 try:
                     self._columns = self._primary_index.level_drop(1)
                 except ErrorInitIndexNonUnique:
                     raise self._error_update_axis_labels(self._axis) from None
-            else:
-                self._columns = self._primary_index
+
             self._index = self._secondary_index
+
         self._assign_axis = False
 
     def unpersist(self) -> None:
