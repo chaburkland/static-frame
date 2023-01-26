@@ -922,6 +922,7 @@ class Quilt(ContainerBase, StoreClientMixin):
                 ))
 
     #---------------------------------------------------------------------------
+    # Array extraction helpers
 
     def _extract_null_slice_array(self,
             extractor: AnyCallable,
@@ -1031,8 +1032,8 @@ class Quilt(ContainerBase, StoreClientMixin):
         return concat_resolved(parts, axis=self._axis)
 
     #---------------------------------------------------------------------------
+    # Normal extraction helpers
 
-    # Copied impl from code on master
     def _extract_null_slice(self,
             extractor: AnyCallable,
             ) -> Frame:
@@ -1047,19 +1048,16 @@ class Quilt(ContainerBase, StoreClientMixin):
                     for label, frame in self._bus.items()
                     )
         else:
-            frames = (extractor(frame) for frame in self._bus.values)
+            frames = (extractor(frame) for frame in self._bus.iter_element())
 
         if not self._include_index:
-            return Frame.from_concat( # type: ignore
+            return Frame.from_concat(
                     frames,
                     axis=self._axis,
                     index=self._primary_index,
                     )
 
-        return Frame.from_concat( # type: ignore
-                frames,
-                axis=self._axis,
-                )
+        return Frame.from_concat(frames, axis=self._axis)
 
     def _extract_no_hierarchy(self,
             primary_index_sel: tp.Union[int, IndexBase],
