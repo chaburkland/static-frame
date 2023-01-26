@@ -71,7 +71,12 @@ class TestUnit(TestCase):
 
 
         def test_assertions(axis: int, flag: bool) -> None:
-            hierarchy, opposite = bus_to_hierarchy(b1, axis=axis, deepcopy_from_bus=flag, init_exception_cls=ErrorInitBus)
+            primary_index, secondary_index = bus_to_hierarchy(
+                    b1,
+                    axis=axis,
+                    deepcopy_from_bus=flag,
+                    init_exception_cls=ErrorInitBus,
+                    )
 
             if axis == 0:
                 expected_tree: tp.Dict[str, Index] = {
@@ -82,8 +87,8 @@ class TestUnit(TestCase):
                 expected_index = indices
                 expected_tree = {'f1': columns, 'f2': columns, 'f3': columns}
 
-            self.compare_trees(hierarchy.to_tree(), expected_tree)
-            self.assertTrue(expected_index.equals(opposite))
+            self.compare_trees(primary_index.to_tree(), expected_tree)
+            self.assertTrue(expected_index.equals(secondary_index))
 
         for axis in (0, 1):
             for flag in (True, False):
@@ -108,10 +113,10 @@ class TestUnit(TestCase):
         f3 = Frame(values, index=index3, columns=index1, name='f3')
         b1 = Bus.from_frames((f1, f2, f3))
 
-        def test_assertions(hierarchy: IndexHierarchy, opposite: Index) -> None:
+        def test_assertions(primary_index: IndexHierarchy, secondary_index: Index) -> None:
             expected_tree = dict(f1=tree1, f2=tree2, f3=tree3)
-            self.compare_trees(hierarchy.to_tree(), expected_tree)
-            self.assertTrue(index1.equals(opposite))
+            self.compare_trees(primary_index.to_tree(), expected_tree)
+            self.assertTrue(index1.equals(secondary_index))
 
         test_assertions(*bus_to_hierarchy(b1, axis=0, deepcopy_from_bus=False, init_exception_cls=CustomError))
         test_assertions(*bus_to_hierarchy(b1, axis=0, deepcopy_from_bus=True, init_exception_cls=CustomError))

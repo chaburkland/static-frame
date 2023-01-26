@@ -39,7 +39,7 @@ def bus_to_hierarchy(
         init_exception_cls: tp.Type[Exception],
         ) -> tp.Tuple[IndexHierarchy, IndexBase]:
     '''
-    Given a :obj:`Bus` and an axis, derive a :obj:`IndexHierarchy`; also return and validate the :obj:`Index` of the opposite axis.
+    Given a :obj:`Bus` and an axis, derive a :obj:`IndexHierarchy`; also return and validate the :obj:`Index` of the secondary axis.
     '''
     # NOTE: need to extract just axis labels, not the full Frame; need new Store/Bus loaders just for label data
     extractor = get_extractor(deepcopy_from_bus, is_array=False, memo_active=False)
@@ -51,30 +51,33 @@ def bus_to_hierarchy(
         return index
 
     tree: TreeNodeT = {}
-    opposite: tp.Optional[IndexBase] = None
+    secondary: tp.Optional[IndexBase] = None
 
     for label, f in bus.items():
         if axis == 0:
             tree[label] = tree_extractor(f.index)
-            if opposite is None:
-                opposite = extractor(f.columns)
+            if secondary is None:
+                secondary = extractor(f.columns)
             else:
-                if not opposite.equals(f.columns):
-                    raise init_exception_cls('opposite axis must have equivalent indices')
+                if not secondary.equals(f.columns):
+                    raise init_exception_cls('secondary axis must have equivalent indices')
         elif axis == 1:
             tree[label] = tree_extractor(f.columns)
-            if opposite is None:
-                opposite = extractor(f.index)
+            if secondary is None:
+                secondary = extractor(f.index)
             else:
-                if not opposite.equals(f.index):
-                    raise init_exception_cls('opposite axis must have equivalent indices')
+                if not secondary.equals(f.index):
+                    raise init_exception_cls('secondary axis must have equivalent indices')
         else:
             raise AxisInvalid(f'invalid axis {axis}')
 
     # NOTE: we could try to collect index constructors by using the index of the Bus and observing the inidices of the contained Frames, but it is not clear that will be better then using IndexAutoConstructorFactory
+    primary = IndexHierarchy.from_tree(
+            tree,  # type: ignore
+            index_constructors=IndexAutoConstructorFactory,
+            )
 
-    return IndexHierarchy.from_tree(tree,  # type: ignore
-            index_constructors=IndexAutoConstructorFactory), opposite
+    return primary, secondary
 
 
 def buses_to_hierarchy(

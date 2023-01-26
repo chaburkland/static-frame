@@ -622,8 +622,8 @@ class TestUnit(TestCase):
         self.assertEqual(memory_total(q), sum(memory_total(e, seen=seen) for e in (
             q._bus,
             q._axis,
-            q._axis_hierarchy,
-            q._axis_opposite,
+            q._primary_index,
+            q._secondary_index,
             q._assign_axis,
             #q._columns, # not initialized until after get columns property
             #q._index, # not initialized until after get columns property
@@ -651,8 +651,8 @@ class TestUnit(TestCase):
         self.assertEqual(memory_total(q), sum(memory_total(e, seen=seen) for e in (
             q._bus,
             q._axis,
-            q._axis_hierarchy,
-            q._axis_opposite,
+            q._primary_index,
+            q._secondary_index,
             q._assign_axis,
             q._columns,
             q._index,
