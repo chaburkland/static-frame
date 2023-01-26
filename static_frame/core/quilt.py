@@ -74,13 +74,11 @@ class Quilt(ContainerBase, StoreClientMixin):
             '_axis',
             '_primary_index',
             '_retain_labels',
-            '_include_index',
             '_secondary_index',
             '_assign_axis',
             '_columns',
             '_index',
             '_deepcopy_from_bus',
-            '_iloc_to_frame_label',
             )
 
     _bus: tp.Union[Bus, Yarn]
@@ -91,9 +89,7 @@ class Quilt(ContainerBase, StoreClientMixin):
     _columns: IndexBase
     _assign_axis: bool
     _retain_labels: bool
-    _include_index: bool
     _deepcopy_from_bus: bool
-    _iloc_to_frame_label: tp.Optional[Series]
 
     _NDIM: int = 2
 
@@ -446,21 +442,14 @@ class Quilt(ContainerBase, StoreClientMixin):
             axis: int = 0,
             name: NameType = None,
             retain_labels: tp.Optional[bool] = None,
-            include_index: bool = True,
             deepcopy_from_bus: bool = False,
             ) -> 'Quilt':
         '''Return a :obj:`Quilt` from an iterable of :obj:`Frame`; labels will be drawn from :obj:`Frame.name`.
         '''
-        if include_index and retain_labels is None:
-            raise RuntimeError("Must set `retain_labels` if `include_index` is True.")
-        elif not include_index:
-            retain_labels = False
-
         bus = Bus.from_frames(frames, name=name)
         return cls(bus,
                 axis=axis,
                 retain_labels=retain_labels,
-                include_index=include_index,
                 deepcopy_from_bus=deepcopy_from_bus,
                 )
 
@@ -471,7 +460,6 @@ class Quilt(ContainerBase, StoreClientMixin):
             *,
             axis: int = 0,
             retain_labels: bool,
-            include_index: bool = True, # TODO: Remove default
             primary_index: tp.Optional[IndexHierarchy] = None,
             secondary_index: tp.Optional[IndexBase] = None,
             deepcopy_from_bus: bool = False,
@@ -482,7 +470,6 @@ class Quilt(ContainerBase, StoreClientMixin):
         self._bus = bus
         self._axis = axis
         self._retain_labels = retain_labels
-        self._include_index = include_index
         self._deepcopy_from_bus = deepcopy_from_bus
 
         if (primary_index is None) ^ (secondary_index is None):
@@ -492,7 +479,6 @@ class Quilt(ContainerBase, StoreClientMixin):
         self._primary_index = primary_index
         self._secondary_index = secondary_index
         self._assign_axis = True # Boolean to control deferred axis index creation
-        self._iloc_to_frame_label = None
 
     #---------------------------------------------------------------------------
     # deferred loading of axis info
@@ -505,28 +491,16 @@ class Quilt(ContainerBase, StoreClientMixin):
 
     def _update_axis_labels(self) -> None:
         if self._primary_index is None or self._secondary_index is None:
-            primary, self._secondary_index = build_quilt_indices(
+            self._primary_index, self._secondary_index = build_quilt_indices(
                     self._bus,
                     axis=self._axis,
-                    include_index=self._include_index,
+                    retain_labels=self._retain_labels,
                     deepcopy_from_bus=self._deepcopy_from_bus,
                     init_exception_cls=ErrorInitQuilt,
                     )
 
-            if self._include_index:
-                assert isinstance(primary, IndexHierarchy)
-
-                self._primary_index = primary
-                self._iloc_to_frame_label = None
-            else:
-                assert isinstance(primary, Series)
-                assert primary.index._map is None # auto-incrememnted index
-
-                self._primary_index = primary.index
-                self._iloc_to_frame_label = primary
-
         if self._axis == 0:
-            if not self._include_index or self._retain_labels:
+            if self._retain_labels:
                 self._index = self._primary_index
             else:
                 try:
@@ -536,7 +510,7 @@ class Quilt(ContainerBase, StoreClientMixin):
 
             self._columns = self._secondary_index
         else:
-            if not self._include_index or self._retain_labels:
+            if self._retain_labels:
                 self._columns = self._primary_index
             else:
                 try:
@@ -940,45 +914,6 @@ class Quilt(ContainerBase, StoreClientMixin):
                 axis=self._axis,
                 )
 
-    def _extract_no_hierarchy_array(self,
-            primary_index_sel: tp.Union[int, IndexBase],
-            primary_reduces: bool,
-            secondary_reduces: bool,
-            extractor: AnyCallable, # Interface compatability. Unused
-            secondary_key: GetItemKeyType,
-            ) -> tp.Union[tp.Any, Frame, Series]:
-        '''Specialized path for when `_include_index` is False'''
-        if primary_reduces:
-            primary_index_sel = [primary_index_sel]
-
-        components: tp.List[tp.Union[tp.Any, np.ndarray]] = []
-        iloc_key: int
-
-        iloc_label_iter: tp.Iterator[tp.Tuple[int, tp.Tuple[tp.Hashable, int]]]
-        iloc_label_iter = self._iloc_to_frame_label[primary_index_sel].iter_element_items()
-
-        for iloc_key, (frame_label, label_offset) in iloc_label_iter:
-            primary_key = iloc_key - label_offset
-
-            array_extractor = self._bus.loc[frame_label]._extract_array # type: ignore
-            if primary_reduces:
-                keys = primary_key, secondary_key
-            else:
-                keys = [primary_key], secondary_key
-
-            if self._axis == 1:
-                keys = keys[::-1]
-
-            components.append(array_extractor(*keys))
-
-        if primary_reduces and secondary_reduces:
-            return components[0]
-
-        if primary_reduces or secondary_reduces:
-            return concat_resolved(components)
-
-        return concat_resolved(components, axis=self._axis)
-
     def _extract_hierarchy_array(self,
             primary_key: GetItemKeyType,
             secondary_key: GetItemKeyType,
@@ -1050,56 +985,8 @@ class Quilt(ContainerBase, StoreClientMixin):
         else:
             frames = (extractor(frame) for frame in self._bus.iter_element())
 
-        if not self._include_index:
-            return Frame.from_concat(
-                    frames,
-                    axis=self._axis,
-                    index=self._primary_index,
-                    )
-
         return Frame.from_concat(frames, axis=self._axis)
 
-    def _extract_no_hierarchy(self,
-            primary_index_sel: tp.Union[int, IndexBase],
-            primary_reduces: bool,
-            secondary_reduces: bool,
-            extractor: AnyCallable,
-            secondary_key: GetItemKeyType,
-            ) -> tp.Union[tp.Any, Frame, Series]:
-        '''Specialized path for when `_include_index` is False'''
-        if primary_reduces:
-            primary_index_sel = (primary_index_sel,) # type: ignore
-
-        def gen_components() -> tp.Iterator[tp.Union[tp.Any, Frame, Series]]:
-            for iloc_key in primary_index_sel: # type: ignore
-                frame_label = self._iloc_to_frame_label[iloc_key] # type: ignore
-                sel_component = iloc_key - self._frame_label_offset[frame_label] # type: ignore
-
-                component = self._bus.loc[frame_label].iloc[sel_component, secondary_key]
-                if secondary_reduces:
-                    yield extractor(component)
-                else:
-                    yield extractor(component.rename(iloc_key))
-
-        if primary_reduces and secondary_reduces:
-            return next(gen_components())
-
-        if secondary_reduces:
-            return Series(
-                    gen_components(),
-                    index=primary_index_sel,
-                    name=self._secondary_index[secondary_key], # type: ignore
-                    )
-
-        if primary_reduces:
-            return Series.from_concat(gen_components())
-
-        return Frame.from_concat(
-                gen_components(),
-                axis=self._axis,
-                )
-
-    # Based on impl from code on master, refactored logic though
     def _extract_hierarchy(self,
             primary_key: GetItemKeyType,
             secondary_key: GetItemKeyType,
@@ -1108,24 +995,31 @@ class Quilt(ContainerBase, StoreClientMixin):
             primary_index_sel: tp.Union[tp.Tuple[tp.Hashable, ...], IndexBase],
             extractor: AnyCallable,
             ) -> tp.Union[tp.Any, Series, Frame]:
+
+        # Repeated....
         sel = np.full(len(self._primary_index), False)
         sel[primary_key] = True
 
         def get_component(frame_label: tp.Hashable) -> tp.Any:
-            sel_component = sel[self._primary_index._loc_to_iloc(HLoc[frame_label])] # type: ignore
+            primary_sel = sel[self._primary_index._loc_to_iloc(HLoc[frame_label])] # type: ignore
+            sel = primary_sel, secondary_key
 
-            if self._axis == 0:
-                return self._bus.loc[frame_label].iloc[sel_component, secondary_key]
+            if self._axis == 1:
+                sel = secondary_key, primary_sel
 
-            return self._bus.loc[frame_label].iloc[secondary_key, sel_component]
+            return self._bus.loc[frame_label].iloc[sel]
 
-        # TODO: Prove this
         if primary_reduces and secondary_reduces:
-            return get_component(primary_index_sel[0]).iloc[0]
+            # Both keys were integers. Simply extract the component for the only
+            # label and return it's only element.
+            [frame_label] = primary_index_sel
+            return get_component(frame_label).iloc[0]
 
         frame_label_components: tp.Iterable[tp.Tuple[tp.Hashable, tp.Union[tp.Any, Frame, Series]]]
 
         if isinstance(primary_index_sel, tuple):
+            # When the primary_index is an index_hierarchy, the outermost value
+            # will be the frame label
             frame_label = primary_index_sel[0]
             frame_label_components = ((frame_label, get_component(frame_label)),)
         else:
@@ -1136,7 +1030,7 @@ class Quilt(ContainerBase, StoreClientMixin):
                     for frame_label in frame_labels
                     )
 
-        # Short-circuit if there is no relabeling or decomposition needed
+        # Optimization if there is no relabeling or decomposition needed
         if not primary_reduces and not secondary_reduces and not self._retain_labels:
             return Frame.from_concat(
                     (component for _, component in frame_label_components),
@@ -1144,7 +1038,7 @@ class Quilt(ContainerBase, StoreClientMixin):
                     )
 
         # Finally, process the components to feed correctly relabeled/decomposed components
-        def gen_components() -> tp.Iterator[tp.Union[tp.Any, Frame, Series]]:
+        def gen_components() -> tp.Iterator[tp.Union[Frame, Series]]:
             for frame_label, component in frame_label_components:
                 if self._retain_labels:
                     if self._axis == 0 or secondary_reduces:
@@ -1180,11 +1074,9 @@ class Quilt(ContainerBase, StoreClientMixin):
 
         if is_array:
             null_slice_extractor = self._extract_null_slice_array
-            no_hierarchy_extractor = self._extract_no_hierarchy_array
             hierarchy_extractor = self._extract_hierarchy_array
         else:
             null_slice_extractor = self._extract_null_slice
-            no_hierarchy_extractor = self._extract_no_hierarchy
             hierarchy_extractor = self._extract_hierarchy
 
         extractor = get_extractor(
@@ -1210,19 +1102,10 @@ class Quilt(ContainerBase, StoreClientMixin):
             secondary_key = row_key
 
         primary_reduces = isinstance(primary_key, INT_TYPES)
-        secondary_reduces = isinstance(secondary_key, INT_TYPES)
+        secondary_reduces = isinstance(secondary_key, INT_TYPES) # Only needed for arr?
 
         # get ordered unique Bus labels
         primary_index_sel = self._primary_index.iloc[primary_key] # type: ignore
-
-        if not self._include_index:
-            return no_hierarchy_extractor(
-                primary_index_sel=primary_index_sel,
-                primary_reduces=primary_reduces,
-                secondary_reduces=secondary_reduces,
-                extractor=extractor,
-                secondary_key=secondary_key,
-            )
 
         return hierarchy_extractor(
                 primary_key=primary_key,

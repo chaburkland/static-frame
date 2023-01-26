@@ -2,6 +2,8 @@ import typing as tp
 from copy import deepcopy
 from functools import partial
 
+import numpy as np
+
 from static_frame.core.bus import Bus
 from static_frame.core.exception import AxisInvalid
 from static_frame.core.index_auto import IndexAutoConstructorFactory
@@ -10,7 +12,9 @@ from static_frame.core.index_hierarchy import IndexHierarchy
 from static_frame.core.index_hierarchy import TreeNodeT
 from static_frame.core.series import Series
 from static_frame.core.util import AnyCallable
+from static_frame.core.util import PositionsAllocator
 from static_frame.core.util import array_deepcopy
+from static_frame.core.util import resolve_dtype
 
 if tp.TYPE_CHECKING:
     from static_frame.core.yarn import Yarn  # pylint: disable=W0611 #pragma: no cover
@@ -36,9 +40,9 @@ def get_extractor(
 def build_quilt_indices(
         bus: tp.Union[Bus, 'Yarn'],
         axis: int,
+        retain_labels: bool,
         deepcopy_from_bus: bool,
         init_exception_cls: tp.Type[Exception],
-        include_index: bool = True, # TODO: Remove default
         ) -> tp.Tuple[tp.Union[Series, IndexHierarchy], IndexBase]:
     '''
     Given a :obj:`Bus` and an axis, derive a :obj:`IndexHierarchy`; also return and validate the :obj:`Index` of the secondary axis.
@@ -56,25 +60,19 @@ def build_quilt_indices(
             return index.to_tree()
         return index
 
-    frame_labels: tp.List[tp.Hashable] = []
-    primary_tree: TreeNodeT = {}
+
+    primary_store = {}
     secondary: tp.Optional[IndexBase] = None
 
     for label, f in bus.items():
-        # Handle primary index
-        if include_index:
+        # Handle primary_store index
+        if retain_labels:
             if axis == 0:
-                primary_tree[label] = tree_extractor(f.index)
+                primary_store[label] = tree_extractor(f.index)
             else:
-                primary_tree[label] = tree_extractor(f.columns)
+                primary_store[label] = tree_extractor(f.columns)
         else:
-            # Quilts need to evenutally map iloc calls to frame name.
-            # Since `include_index=False`, this means we aren't building an index hierarchy anymore,
-            # which was the previous way this mapping was done.
-            #
-            # Instead we will construct a series of frame labels, which provides the same utility
-            # that the outermost level of the index_hierarchy would have provided, if `include_index=True`.
-            frame_labels.extend([(label, len(frame_labels))] * f.shape[axis])
+            primary_store[label] = f.shape[axis]
 
         # Handle secondary index
         if axis == 0:
@@ -92,16 +90,41 @@ def build_quilt_indices(
         else:
             raise AxisInvalid(f'invalid axis {axis}')
 
-    if not include_index:
-        assert frame_labels
-        primary = Series(frame_labels)
-    else:
-        assert primary_tree
+    if retain_labels:
         # NOTE: we could try to collect index constructors by using the index of the Bus and observing the inidices of the contained Frames, but it is not clear that will be better then using IndexAutoConstructorFactory
         primary = IndexHierarchy.from_tree(
-                primary_tree,  # type: ignore
+                primary_store,  # type: ignore
                 index_constructors=IndexAutoConstructorFactory,
                 )
+        primary.drop_duplicated(exclude_first=False)
+    else:
+        breakpoint()
+        pairs_iter = iter(primary_store.items())
+        label, total_size = next(pairs_iter)
+        dtype = np.array(label).dtype
+
+        for label, size in pairs_iter:
+            # No need to resolve anymore if we are object!
+            if dtype != object:
+                dtype = resolve_dtype(dtype, np.array(label).dtype)
+
+            total_size += size
+
+        frame_labels = np.empty(total_size, dtype=dtype)
+        i = 0
+        for label, reps in primary_store.items():
+            frame_labels[i:reps+i] = label
+            i += reps
+
+        frame_labels.flags.writeable = False
+
+        breakpoint()
+        primary = IndexHierarchy.from_values_per_depth(
+            [
+                frame_labels,
+                PositionsAllocator.get(total_size) # We don't care about what the inner labels are!
+            ]
+            )
 
     return primary, secondary
 
