@@ -868,6 +868,13 @@ def concat_resolved(
     if axis is None:
         raise NotImplementedError('no handling of concatenating flattened arrays')
 
+    if len(arrays) == 1:
+        [arr] = arrays
+        if not arr.flags.writeable:
+            return arr
+
+        return arr.copy()
+
     if len(arrays) == 2:
         a1, a2 = arrays
         dt_resolve = resolve_dtype(a1.dtype, a2.dtype)

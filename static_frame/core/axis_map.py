@@ -74,7 +74,7 @@ def build_quilt_indices(
             #
             # Instead we will construct a series of frame labels, which provides the same utility
             # that the outermost level of the index_hierarchy would have provided, if `include_index=True`.
-            frame_labels.extend([label] * f.shape[axis])
+            frame_labels.extend([(label, len(frame_labels))] * f.shape[axis])
 
         # Handle secondary index
         if axis == 0:
